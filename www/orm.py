@@ -2,35 +2,36 @@
 import asyncio
 import aiomysql
 
-async def create_pool(loop. **kw):
-    loggin.info('create a mysql connnection pool...')
+async def create_pool(loop, **kw):
+    logging.info('create a mysql connnection pool...')
     global __pool
     __pool = await aiomysql.create_pool(
         host=kw.get('host', 'localhost'),
         port=kw.get('port', 3306),
         user=kw.get('user'),
-        db=kw.get('password'),
+        password=kw.get('password'),
+        db=kw.get('db'),
         charset=kw.get('charset', 'utf8'),
-        autcommit=kw.get('autocommit', True),
+        autocommit=kw.get('autocommit', True),
         maxsize=kw.get('maxsize', 10),
         minsize=kw.get('minsize', 1),
         loop=loop
     )    
     
-async def query(sql. args, size=None):
+async def query(sql, args, size=None):
     ''' 
         SELECT rowname FROM tablename WHERE 
     '''
-    logging.info('SELECT SQL: %s' % sql)
+    logging.info('SELECT SQL: %s args: %s' % (sql, args))
     global __pool
     async with __pool.get() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(sql.replace('?', '%s'), args or ())
             if size:
-                rs = await cur.fetchmany(size):
+                rs = await cur.fetchmany(size)
             else: 
                 rs = await cur.fetchall()
-        logging.inof('rows returned: %s' % len(rs))
+        logging.info('rows returned: %s' % len(rs))
         return rs
 
 async def execute(sql, args, autocommit=True):
@@ -39,7 +40,7 @@ async def execute(sql, args, autocommit=True):
         UPDATE tablename SET rouname=value WHERE 
         DELETE FROM tablename WHERE      
     '''
-    logging.info('EXECUTE SQL: %s' % sql)
+    logging.info('EXECUTE SQL: %s args: %s' % (sql, args))
     global __pool
     async with __pool.get() as conn:
         if not autocommit:
@@ -77,11 +78,11 @@ class Field(object):
 
 class StringField(Field):
     
-    def __init__(self, name=None, column_type='varchar(100)', primary_key=False, default=None)::
+    def __init__(self, name=None, column_type='varchar(100)', primary_key=False, default=None):
         super().__init__(name, column_type, primary_key, default)
     
     
-class TextFIeld(Field):
+class TextField(Field):
     
     def __init__(self, name=None, default=None):
         super().__init__(name, 'text', False, default)
@@ -94,11 +95,13 @@ class IntegerField(Field):
     
     
 class FloatField(Field):
-    desf __init__(self, name=None, primary_key=False, default=0.0):
+
+    def __init__(self, name=None, primary_key=False, default=0.0):
         super().__init__(name, 'real', primary_key, default)
 
     
 class BooleanField(Field):
+
     def __init__(self, name=None, default=False):
         super().__init__(name, 'boolean', False, default)
 
@@ -107,22 +110,22 @@ class ModelMetaclass(type):
     
     def __new__(cls, name, bases, attrs):
         if name == 'Model':
-            return type.__new__(cls, name, bases, atrrs)
+            return type.__new__(cls, name, bases, attrs)
         tableName = attrs.get('__table__', None) or name
         mappings = dict()
         fields = []
         primaryKey = None
         
         # mappings = fields + primaryKey
-        for k, v in attrs:
+        for k, v in attrs.items():
             if isinstance(v, Field):
                 mappings[k] = v
                 if v.primary_key:
                     if primaryKey:
                         raise StandardError('Duplicate primary key for mappings[ %s ]' % k)
-                    primaryKey = ('`%s`' % k) 
+                    primaryKey = (k) 
                 else:
-                    fields.append('`%s`' % k) # escape k,then add into fields
+                    fields.append(k)
         if not primaryKey:
             raise StandardError('Primary key not found.')
         for k in mappings.keys():
@@ -133,11 +136,13 @@ class ModelMetaclass(type):
         attrs['__primary_key__'] = primaryKey
         attrs['__fields__'] = fields
         #SQL
-        attrs['__select__'] = 'SELECT %s, %s FROM %s' % (primaryKey, ', '.join(fields), tableName) 
-        attrs['__insert__'] = 'INSERT INTO %s (%s, %s) VALUES (%s)' % (tableName, primaryKey, ', '.join(fields), create_args_string(len(fields) + 1))
-        attrs['__update__'] = 'UPDATE %s SET %s WHERE %s=?' % (tableName, ', '.join(map(lambda f: ' %s=?' % f, fields)), primaryKey)
-        attrs['__delete__'] = 'DELETE FROM %s WHERE %s=?' % (tableName, primaryKey)
-        return type.__new__(cla, name, bases, attrs)
+        escaped_primaryKey = '`%s`' % primaryKey
+        escaped_fields = list(map(lambda f: '`%s`' % f, fields))
+        attrs['__select__'] = 'SELECT %s, %s FROM %s' % (escaped_primaryKey, ', '.join(escaped_fields), tableName) 
+        attrs['__insert__'] = 'INSERT INTO %s (%s, %s) VALUES (%s)' % (tableName, escaped_primaryKey, ', '.join(escaped_fields), create_args_string(len(fields) + 1))
+        attrs['__update__'] = 'UPDATE %s SET %s WHERE %s=?' % (tableName, ', '.join(map(lambda f: ' %s=?' % f, escaped_fields)), escaped_primaryKey)
+        attrs['__delete__'] = 'DELETE FROM %s WHERE %s=?' % (tableName, escaped_primaryKey)
+        return type.__new__(cls, name, bases, attrs)
         
         
 class Model(dict, metaclass=ModelMetaclass):
@@ -157,7 +162,7 @@ class Model(dict, metaclass=ModelMetaclass):
     def getValue(self, key):
         value = getattr(self, key ,None)
         if value is None:
-            field = self.__mapping__[key]
+            field = self.__mappings__[key]
             if field.default is not None:
                 value = field.default() if callable(field.default) else field.default 
                 # default()是因存在default=next_id， default=time.time，所以在使用getValue的时候再计算
@@ -166,17 +171,17 @@ class Model(dict, metaclass=ModelMetaclass):
         return value
      
     @classmethod
-    def find(cls, pk):
+    async def find(cls, pk):
         'find object by primary key or email'
         "'SELECT %s, %s FROM %s' % (primaryKey, ', '.join(fields), tableName) "
         sql = '%s where %s=?' % (cls.__select__, cls.__primary_key__)
         rs = await query(sql, [pk], 1)
         if len(rs) == 0:
             return None
-        return [cls(**rs[0])]
+        return cls(**rs[0])
 
     @classmethod
-    def findAll(cls, where=None, args=None,**kw):
+    async def findAll(cls, where=None, args=None,**kw):
         ' find all objects by where clause.'
         "'SELECT %s, %s FROM %s' % (primaryKey, ', '.join(fields), tableName) "
         sql = [cls.__select__]
@@ -201,15 +206,15 @@ class Model(dict, metaclass=ModelMetaclass):
         rs = await query(' '.join(sql), args)
         return [cls(**r) for r in rs]
         
-    def insert(self):
+    async def insert(self):
         "'INSERT INTO %s (%s, %s) VALUES (%s)' "
-        values = list(self.getValue(self.__primary_key__))
+        values = [self.getValue(self.__primary_key__)]
         values.extend(list(map(self.getValue, self.__fields__)))
         affected = await execute(self.__insert__, values)
         if affected != 1:
             logging.warn('failed to insert record: affected rows: %s' % affected)
         
-    def update(self):
+    async def update(self):
         'UPDATE %s SET %s WHERE %s=?'
         values = list(map(self.getValue, self.__fields__))
         values.append(self.getValue(self.__primary_key__))
@@ -217,8 +222,7 @@ class Model(dict, metaclass=ModelMetaclass):
         if affected != 1:
             logging.warn('failed to update record by primary key.')
         
-        
-    def delate(self):
+    async def delete(self):
         'DELETE FROM %s WHERE %s=?'
         affected = await execute(self.__delete__, self.getValue(self.__primary_key__))
         if affected != 1:
