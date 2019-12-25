@@ -159,7 +159,8 @@ class Model(dict, metaclass=ModelMetaclass):
         if value is None:
             field = self.__mapping__[key]
             if field.default is not None:
-                value = field.default() if callable(field.default) else field.default
+                value = field.default() if callable(field.default) else field.default 
+                # default()是因存在default=next_id， default=time.time，所以在使用getValue的时候再计算
                 logging.debug('using default value: %s for key: %s' % (value, key))
                 setattr(self, key, value)
         return value
