@@ -9,58 +9,64 @@ from coroweb import add_routes, add_static
 
 from jinja2 import Environment, FileSystemLoader 
 
-@web.middleware
-async def loggerMiddleware(request, handler):
-    logging.info('Request: %s %s' % (request.method, request.path))
-    return (await handler(request))
-
-@web.middleware    
-async def respMiddleware(request, handler):
-    logging.info('response handler...')
-    resp = await handler(request))
-    # 处理resp
-    if isinstance(resp, web.StreamResponse):
-        return resp
-    if isinstance(resp, bytes):
-        resp = web.Response(body=resp)
-        resp.conten_type = 'application/octet-stream'
-        return  resp
-    if isinstance(resp, str):
-        if resp.startswith('redirect:'):
-            #@get('/manage') return 'redirect:/manage/comments'
-            return web.HTTPFound(resp[9:])
-        resp = web.Response(body=resp.encode('utf-8'))
-        resp.conten_type = 'text/html;charset=utf-8'
-        return resp
-    if isinstance(resp, dict):
-        template = resp.get('__template__')
-        if template is None:
-            #@get('/api/users') return dict(page=p, users=users)
-            resp = web.Response(body=json.dumps(resp, ensure_ascii=False, default=lambda o: o.__dict__).encode('utf-8'))
-            resp.content_type = 'application/json;charset=utf-8'
+#源码里对于middleware__factory的处理
+#for factory in app._middlewares: 
+#     handler = yield from factory(app, handler)
+# resp = yield from handler(request)
+async def logger_factory(app, handler):
+    async def logger_handler(request):
+        logging.info('Request: %s %s' % (request.method, request.path))
+        return (await handler(request))
+    return logger_handler
+    
+async def response_factory(app, handler):   
+    async def response_handler(request):
+        logging.info('response handler...')
+        resp = await handler(request)
+        # 处理resp
+        if isinstance(resp, web.StreamResponse):
             return resp
-        else:
-            #@get('/manage/comments') 
-            #   return {
-            #      '__template__': 'manage_comments.html',
-            #      'page_index': get_page_index(page)
-            #   }
-            resp = web.Response(body=app['__jinja2_env__'].get_template(template).render(**resp).encode('utf-8'))
+        if isinstance(resp, bytes):
+            resp = web.Response(body=resp)
+            resp.conten_type = 'application/octet-stream'
+            return  resp
+        if isinstance(resp, str):
+            if resp.startswith('redirect:'):
+                #@get('/manage') return 'redirect:/manage/comments'
+                return web.HTTPFound(resp[9:])
+            resp = web.Response(body=resp.encode('utf-8'))
             resp.conten_type = 'text/html;charset=utf-8'
             return resp
-    # 返回状态 200 ok
-    if isinstance(resp, int) and resp >= 100 and resp < 600:
-        return web.Response(resp)
-    if isinstance(resp, tuple) and len(resp) == 2:
-        t, m = r 
-        if isinstance(t, int) and t >= 100 and t < 600:
-            return web.Response(t, str(m))
-    #default:
-    #@get('/api/blogs/{id}') return blog
-    resp = web.Response(body=str(resp).encode('utf-8'))
-    resp.conten_type = 'text/plain;charset=utf-8'
-    return resp 
- 
+        if isinstance(resp, dict):
+            template = resp.get('__template__')
+            if template is None:
+                #@get('/api/users') return dict(page=p, users=users)
+                resp = web.Response(body=json.dumps(resp, ensure_ascii=False, default=lambda o: o.__dict__).encode('utf-8'))
+                resp.content_type = 'application/json;charset=utf-8'
+                return resp
+            else:
+                #@get('/manage/comments') 
+                #   return {
+                #      '__template__': 'manage_comments.html',
+                #      'page_index': get_page_index(page)
+                #   }
+                resp = web.Response(body=app['__jinja2_env__'].get_template(template).render(**resp).encode('utf-8'))
+                resp.conten_type = 'text/html;charset=utf-8'
+                return resp
+        # 返回状态 200 ok
+        if isinstance(resp, int) and resp >= 100 and resp < 600:
+            return web.Response(resp)
+        if isinstance(resp, tuple) and len(resp) == 2:
+            t, m = r 
+            if isinstance(t, int) and t >= 100 and t < 600:
+                return web.Response(t, str(m))
+        #default:
+        #@get('/api/blogs/{id}') return blog
+        resp = web.Response(body=str(resp).encode('utf-8'))
+        resp.conten_type = 'text/plain;charset=utf-8'
+        return resp 
+    return response_handler
+    
 def init_jinja2(app, **kw):
     logging.info('init jinja2...')
     options = dict(
@@ -100,7 +106,7 @@ def datetime_filter(t):
 async def init(loop):
     await orm.create_pool(loop=loop, user='www-data', password='www-data', db='awesome')
     app = web.Application(loop=loop, middlewares=[
-        loggerMiddleware, respMiddleware
+        logger_factory, response_factory
     ])
     init_jinja2(app, filters=dict(datetime=datetime_filter))
     add_static(app)
