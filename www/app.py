@@ -9,6 +9,8 @@ from coroweb import add_routes, add_static
 
 from jinja2 import Environment, FileSystemLoader 
 
+from config import configs
+
 #源码里对于middleware__factory的处理
 #for factory in app._middlewares: 
 #     handler = yield from factory(app, handler)
@@ -104,7 +106,7 @@ def datetime_filter(t):
     return u'%s年%s月%s日' % (dt.year, dt.month, dt.day)
  
 async def init(loop):
-    await orm.create_pool(loop=loop, user='www-data', password='www-data', db='awesome')
+    await orm.create_pool(loop=loop, **configs.db)
     app = web.Application(loop=loop, middlewares=[
         logger_factory, response_factory
     ])
