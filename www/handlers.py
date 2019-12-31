@@ -5,6 +5,12 @@ from aiohttp import web
 
 from coroweb import get, post
 
+from models import User
+
 @get('/')
-def index(request):
-    return web.Response(body=b'Awesome')
+async def index(request):
+    users = await User.findAll()
+    return {
+        '__template__': 'test.html',
+        'users': users
+    }
