@@ -13,6 +13,8 @@ from datetime import datetime
 
 from config import configs
 
+from handlers import cookie2user, COOKIE_NAME
+
 #源码里对于middleware__factory的处理
 #for factory in app._middlewares: 
 #     handler = yield from factory(app, handler)
@@ -22,13 +24,28 @@ async def logger_factory(app, handler):
         logging.info('Request: %s %s' % (request.method, request.path))
         return (await handler(request))
     return logger_handler
-    
+
+async def auth_factory(app, handler):
+    # 通过cookie验证用户 
+    async def auth_handler(request):
+        logging.info('auth user...')       
+        request.__user__ = None
+        cookie_str = request.cookies.get(COOKIE_NAME)
+        if cookie_str:
+            user = await cookie2user(cookie_str)
+            if user:
+                logging.info('authenticated %s' % user.email)
+                request.__user__ = user
+        return (await handler(request))
+    return auth_handler
+        
 async def response_factory(app, handler):   
     async def response_handler(request):
         logging.info('response handler...')
         resp = await handler(request)
         # 处理resp
         if isinstance(resp, web.StreamResponse):
+            #@post('/api/user/register') return web.Response()
             return resp
         if isinstance(resp, bytes):
             resp = web.Response(body=resp)
@@ -54,6 +71,7 @@ async def response_factory(app, handler):
                 #      '__template__': 'manage_comments.html',
                 #      'page_index': get_page_index(page)
                 #   }
+                resp['__user__'] = request.__user__
                 resp = web.Response(body=app['__jinja2_env__'].get_template(template).render(**resp).encode('utf-8'))
                 resp.conten_type = 'text/html;charset=utf-8'
                 return resp
@@ -110,7 +128,7 @@ def datetime_filter(t):
 async def init(loop):
     await orm.create_pool(loop=loop, **configs.db)
     app = web.Application(loop=loop, middlewares=[
-        logger_factory, response_factory
+        logger_factory, auth_factory, response_factory
     ])
     init_jinja2(app, filters=dict(datetime=datetime_filter))
     add_static(app)

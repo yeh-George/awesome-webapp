@@ -164,8 +164,9 @@ class Model(dict, metaclass=ModelMetaclass):
         if value is None:
             field = self.__mappings__[key]
             if field.default is not None:
+                # default()是因存在default=time.time，所以在使用getValue的时候再计算
+                # default=next_id, 创建任务是需要uid=next_id()直接传入，所以这一段用处不大
                 value = field.default() if callable(field.default) else field.default 
-                # default()是因存在default=next_id， default=time.time，所以在使用getValue的时候再计算
                 logging.debug('using default value: %s for key: %s' % (value, key))
                 setattr(self, key, value)
         return value
@@ -179,7 +180,18 @@ class Model(dict, metaclass=ModelMetaclass):
         if len(rs) == 0:
             return None
         return cls(**rs[0])
-
+    
+    @classmethod
+    async def findNumber(cls, column_name, where=None, args=None):
+        sql = ['SELECT COUNT(%s) AS num FROM %s' % (column_name, cls.__table__)]
+        if where:
+            sql.append('where')
+            sql.append(where)
+        rs = await query(' '.join(sql), args, 1)
+        if len(rs) == 0:
+            return None
+        return rs[0]['num']
+        
     @classmethod
     async def findAll(cls, where=None, args=None,**kw):
         ' find all objects by where clause.'
@@ -189,7 +201,7 @@ class Model(dict, metaclass=ModelMetaclass):
             sql.append('where %s' % where)
         if args is None:
             args = []
-        orderBy = kw.get('orderBy', None)
+        orderBy = kw.get('orderBy', 'created_at desc')
         if orderBy:
             sql.append('order by %s' % orderBy)
         limit = kw.get('limit', None)

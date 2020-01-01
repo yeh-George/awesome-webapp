@@ -7,6 +7,7 @@ from urllib import parse # https://www.jianshu.com/p/fb1010c77bda
 
 import os 
 
+from errors import APIError
 
 # 定义handlers的@get @post
 def get(path):
