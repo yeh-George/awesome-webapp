@@ -239,30 +239,3 @@ class Model(dict, metaclass=ModelMetaclass):
         affected = await execute(self.__delete__, self.getValue(self.__primary_key__))
         if affected != 1:
             logging.warn('failed to delete record by primary key.')
-        
-        
-        
-        
-        
-  
-    
-    
-    
-        
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                
-    

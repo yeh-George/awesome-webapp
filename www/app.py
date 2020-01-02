@@ -1,6 +1,6 @@
 ﻿import logging; logging.basicConfig(level=logging.INFO)
 
-import asyncio, os, datetime
+import asyncio, os, datetime, json
 
 from aiohttp import web
 
@@ -36,6 +36,8 @@ async def auth_factory(app, handler):
             if user:
                 logging.info('authenticated %s' % user.email)
                 request.__user__ = user
+        if request.path.startswith('/manage') and (request.__user__ is None or not request.__user__.admin):
+            return web.HTTPFound('/signin')
         return (await handler(request))
     return auth_handler
         
@@ -62,6 +64,7 @@ async def response_factory(app, handler):
             template = resp.get('__template__')
             if template is None:
                 #@get('/api/users') return dict(page=p, users=users)
+                # dict是后端API传来的，页面function getJSON，需要以json形式发回去,然后数据通过vue显示在页面上
                 resp = web.Response(body=json.dumps(resp, ensure_ascii=False, default=lambda o: o.__dict__).encode('utf-8'))
                 resp.content_type = 'application/json;charset=utf-8'
                 return resp
